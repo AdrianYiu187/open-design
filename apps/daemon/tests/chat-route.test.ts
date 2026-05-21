@@ -287,6 +287,72 @@ process.stdin.on('end', () => {
     expect(stagedFileBody).toBe(expectedChecklist);
   });
 
+  it('stages side files for every composed skill into the project cwd', async () => {
+    const projectId = `project-${randomUUID()}`;
+    const stagedPaths = [
+      '.od-skills/release-notes-one-pager/references/checklist.md',
+      '.od-skills/swiss-creative-mode-template/references/checklist.md',
+    ] as const;
+    const expectedBodies = await Promise.all(
+      [
+        resolve(process.cwd(), '..', '..', 'skills', 'release-notes-one-pager', 'references', 'checklist.md'),
+        resolve(process.cwd(), '..', '..', 'skills', 'swiss-creative-mode-template', 'references', 'checklist.md'),
+      ].map((file) => fsp.readFile(file, 'utf8')),
+    );
+
+    const createProjectResponse = await fetch(`${baseUrl}/api/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: projectId,
+        name: 'Multi staged skill project',
+      }),
+    });
+
+    expect(createProjectResponse.ok).toBe(true);
+
+    const fakeAgentScript = `
+const fs = require('node:fs');
+const stagedBodies = [
+  fs.readFileSync(${JSON.stringify(stagedPaths[0])}, 'utf8'),
+  fs.readFileSync(${JSON.stringify(stagedPaths[1])}, 'utf8'),
+];
+const expectedBodies = ${JSON.stringify(expectedBodies)};
+if (JSON.stringify(stagedBodies) !== JSON.stringify(expectedBodies)) {
+  console.error('multi-staged-skill-side-files-mismatch');
+  process.exit(1);
+}
+process.stdin.resume();
+process.stdin.on('end', () => {
+  console.log(JSON.stringify({ type: 'step_start' }));
+  console.log(JSON.stringify({ type: 'text', part: { text: 'multi-staged-skill-side-files-before-spawn' } }));
+  console.log(JSON.stringify({ type: 'step_finish', part: { tokens: { input: 1, output: 1 } } }));
+  process.exit(0);
+});
+`;
+
+    await withFakeAgent(
+      'opencode',
+      fakeAgentScript,
+      async () => {
+        const response = await fetch(`${baseUrl}/api/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agentId: 'opencode',
+            projectId,
+            message: 'compose multiple skills',
+            skillIds: ['release-notes-one-pager', 'swiss-creative-mode-template'],
+          }),
+        });
+        const body = await response.text();
+
+        expect(response.ok).toBe(true);
+        expect(body).toContain('multi-staged-skill-side-files-before-spawn');
+      },
+    );
+  });
+
   it('propagates the composed skill mode for ad-hoc-only deck skills', async () => {
     await withFakeAgent(
       'opencode',
@@ -323,6 +389,51 @@ process.stdin.on('end', () => {
         expect(body).toContain('has-deck-skill-header');
         expect(body).toContain('has-deck-framework');
         expect(body).not.toContain('missing-deck-skill-header');
+        expect(body).not.toContain('missing-deck-framework');
+      },
+    );
+  });
+
+  it('propagates composed deck mode when a base skill is already active', async () => {
+    await withFakeAgent(
+      'opencode',
+      `
+let prompt = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+  prompt += chunk;
+});
+process.stdin.on('end', () => {
+  const checks = [
+    prompt.includes('# FAQ Page Skill') ? 'has-base-skill-body' : 'missing-base-skill-body',
+    prompt.includes('## Composed skill — open-design-landing-deck') ? 'has-composed-deck-skill-header' : 'missing-composed-deck-skill-header',
+    prompt.includes('# Slide deck — fixed framework (this is non-negotiable for deck mode)') ? 'has-deck-framework' : 'missing-deck-framework',
+  ];
+  console.log(JSON.stringify({ type: 'step_start' }));
+  console.log(JSON.stringify({ type: 'text', part: { text: checks.join('\\n') } }));
+  console.log(JSON.stringify({ type: 'step_finish', part: { tokens: { input: 1, output: 1 } } }));
+  process.exit(0);
+});
+`,
+      async () => {
+        const response = await fetch(`${baseUrl}/api/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agentId: 'opencode',
+            message: 'build an faq page deck',
+            skillId: 'faq-page',
+            skillIds: ['open-design-landing-deck'],
+          }),
+        });
+        const body = await response.text();
+
+        expect(response.ok).toBe(true);
+        expect(body).toContain('has-base-skill-body');
+        expect(body).toContain('has-composed-deck-skill-header');
+        expect(body).toContain('has-deck-framework');
+        expect(body).not.toContain('missing-base-skill-body');
+        expect(body).not.toContain('missing-composed-deck-skill-header');
         expect(body).not.toContain('missing-deck-framework');
       },
     );

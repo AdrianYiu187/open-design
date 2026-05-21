@@ -8330,13 +8330,39 @@ export async function startServer({
     let skillBody;
     let skillName;
     let skillMode;
+    const skillModes = new Set<NonNullable<Parameters<typeof composeSystemPrompt>[0]['skillMode']>>();
     let skillCraftRequires = [];
     let activeSkillDir = null;
+    const activeSkillDirs: string[] = [];
     // Per-skill Critique Theater override sourced from
     // `od.critique.policy` in the resolved skill's SKILL.md frontmatter.
     // `null` means the skill has no opinion and the lower-priority tiers
     // (project override, env override, rollout phase default) decide.
     let skillCritiquePolicy: SkillCritiquePolicy = null;
+    let critiqueSkillId = effectiveCanonicalSkillId;
+    const registerSkillMode = (
+      mode: NonNullable<Parameters<typeof composeSystemPrompt>[0]['skillMode']> | null | undefined,
+    ) => {
+      if (!mode) return;
+      skillMode = mode;
+      skillModes.add(mode);
+    };
+    const registerSkillDir = (dir: string | null | undefined) => {
+      if (typeof dir !== 'string' || dir.length === 0) return;
+      if (!activeSkillDir) activeSkillDir = dir;
+      if (!activeSkillDirs.includes(dir)) activeSkillDirs.push(dir);
+    };
+    const mergeSkillCritiquePolicy = (
+      current: SkillCritiquePolicy,
+      next: SkillCritiquePolicy,
+    ): SkillCritiquePolicy => {
+      if (next === 'opt-out') return 'opt-out';
+      if (next === 'required') return current === 'opt-out' ? current : 'required';
+      if (next === 'opt-in') {
+        return current === 'required' || current === 'opt-out' ? current : 'opt-in';
+      }
+      return current;
+    };
     if (effectiveSkillId) {
       // Span both functional skills and design templates so a project
       // saved against either surface keeps its system prompt after the
@@ -8346,9 +8372,12 @@ export async function startServer({
       if (skill) {
         skillBody = skill.body;
         skillName = skill.name;
-        skillMode = skill.mode;
-        activeSkillDir = skill.dir;
-        skillCritiquePolicy = skill.critiquePolicy;
+        registerSkillMode(skill.mode);
+        registerSkillDir(skill.dir);
+        skillCritiquePolicy = mergeSkillCritiquePolicy(
+          skillCritiquePolicy,
+          skill.critiquePolicy,
+        );
         if (Array.isArray(skill.craftRequires))
           skillCraftRequires = skill.craftRequires;
       }
@@ -8367,8 +8396,13 @@ export async function startServer({
         seen.add(canonicalId);
         const extra = findSkillById(allSkills, id);
         if (!extra) continue;
-        if (!activeSkillDir) activeSkillDir = extra.dir;
-        if (!skillMode) skillMode = extra.mode;
+        registerSkillDir(extra.dir);
+        registerSkillMode(extra.mode);
+        if (!critiqueSkillId || extra.critiquePolicy !== null) critiqueSkillId = canonicalId;
+        skillCritiquePolicy = mergeSkillCritiquePolicy(
+          skillCritiquePolicy,
+          extra.critiquePolicy,
+        );
         if (Array.isArray(extra.craftRequires)) {
           for (const craft of extra.craftRequires) {
             if (!skillCraftRequires.includes(craft)) skillCraftRequires.push(craft);
@@ -8409,6 +8443,7 @@ export async function startServer({
               skillBody = local.body;
               skillName = local.name;
               activeSkillDir = local.dir;
+              registerSkillDir(local.dir);
             }
           }
         }
@@ -8577,8 +8612,8 @@ export async function startServer({
       && typeof designSystemBody === 'string'
       ? { name: designSystemTitle, design_md: designSystemBody }
       : undefined;
-    const critiqueSkill = critiqueEnabledForRun && typeof effectiveSkillId === 'string'
-      ? { id: effectiveSkillId }
+    const critiqueSkill = critiqueEnabledForRun && typeof critiqueSkillId === 'string'
+      ? { id: critiqueSkillId }
       : undefined;
     // Single-source-of-truth eligibility check. The composer downstream
     // appends <CRITIQUE_RUN> instructions only when this check passes, and
@@ -8593,9 +8628,9 @@ export async function startServer({
     // is instructed to emit Critique Theater tags that no orchestrator
     // consumes.
     const isMediaSurface =
-      skillMode === 'image' ||
-      skillMode === 'video' ||
-      skillMode === 'audio' ||
+      skillModes.has('image') ||
+      skillModes.has('video') ||
+      skillModes.has('audio') ||
       metadata?.kind === 'image' ||
       metadata?.kind === 'video' ||
       metadata?.kind === 'audio';
@@ -8665,6 +8700,7 @@ export async function startServer({
       skillBody,
       skillName,
       skillMode,
+      skillModes: skillModes.size > 0 ? Array.from(skillModes) : undefined,
       designSystemBody,
       designSystemTitle,
       designSystemUsageMd,
@@ -8707,7 +8743,7 @@ export async function startServer({
     // `listSkills()` scan in `startChatRun`. critiqueShouldRun threads
     // the same panel-eligibility decision down to the spawn-path
     // orchestrator gate so prompt and orchestrator stay in lockstep.
-    return { prompt, activeSkillDir, critiqueShouldRun };
+    return { prompt, activeSkillDir, activeSkillDirs, critiqueShouldRun };
   };
 
   // Plan §3.I1 / §3.D / spec §10.1: fire the pipeline schedule on a
@@ -9032,7 +9068,11 @@ export async function startServer({
       .filter((s) => typeof oauthTokensForSpawn[s.id] === 'string')
       .map((s) => ({ id: s.id, label: s.label }));
 
-    const { prompt: daemonSystemPrompt, activeSkillDir, critiqueShouldRun } =
+    const {
+      prompt: daemonSystemPrompt,
+      activeSkillDirs,
+      critiqueShouldRun,
+    } =
       await composeDaemonSystemPrompt({
         agentId,
         projectId,
@@ -9052,11 +9092,11 @@ export async function startServer({
     // advertises both the cwd-relative path (1) and the absolute path
     // (2/3) so the agent can pick whichever works.
     //
-    //   1. CWD-relative copy. Stage the *active* skill into
+    //   1. CWD-relative copy. Stage every active/composed skill into
     //      `<cwd>/.od-skills/<folder>/` so any agent CLI — not just the
     //      ones that honour `--add-dir` — can reach those files via a
     //      path inside its working directory. We copy (not symlink) so
-    //      the staged directory is a true write barrier — agents cannot
+    //      each staged directory is a true write barrier — agents cannot
     //      mutate the shipped repo resource through their cwd.
     //   2. `--add-dir` allowlist. For non-Codex agents, pass `SKILLS_DIR`
     //      and `DESIGN_SYSTEMS_DIR` so the absolute fallback path in the
@@ -9074,17 +9114,19 @@ export async function startServer({
     // daemon and folded into the system prompt directly (see
     // `readDesignSystem`), so an agent never has to open them via the
     // filesystem.
-    if (cwd && activeSkillDir) {
-      const result = await stageActiveSkill(
-        cwd,
-        path.basename(activeSkillDir),
-        activeSkillDir,
-        (msg) => console.warn(msg),
-      );
-      if (!result.staged) {
-        console.warn(
-          `[od] skill-stage skipped: ${result.reason ?? 'unknown reason'}; falling back to absolute paths`,
+    if (cwd && activeSkillDirs.length > 0) {
+      for (const skillDir of activeSkillDirs) {
+        const result = await stageActiveSkill(
+          cwd,
+          path.basename(skillDir),
+          skillDir,
+          (msg) => console.warn(msg),
         );
+        if (!result.staged) {
+          console.warn(
+            `[od] skill-stage skipped: ${result.reason ?? 'unknown reason'}; falling back to absolute paths`,
+          );
+        }
       }
     }
     // Resolve the agent's effective working directory once and use it

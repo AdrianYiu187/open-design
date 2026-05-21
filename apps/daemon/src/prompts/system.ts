@@ -203,6 +203,7 @@ export interface ComposeInput {
     | 'video'
     | 'audio'
     | undefined;
+  skillModes?: Array<'prototype' | 'deck' | 'template' | 'design-system' | 'image' | 'video' | 'audio'> | undefined;
   designSystemBody?: string | undefined;
   designSystemTitle?: string | undefined;
   // Compiled (machine-readable) form of the active brand's design system,
@@ -311,6 +312,7 @@ export function composeSystemPrompt({
   skillBody,
   skillName,
   skillMode,
+  skillModes,
   designSystemBody,
   designSystemTitle,
   designSystemUsageMd,
@@ -342,6 +344,13 @@ export function composeSystemPrompt({
   // wording later in the official base prompt.
   const parts: string[] = [];
   const activeDesignSystemBody = designSystemBody?.trim();
+  const activeSkillModes = new Set(
+    Array.isArray(skillModes)
+      ? skillModes.filter(Boolean)
+      : skillMode
+        ? [skillMode]
+        : [],
+  );
 
   // API/BYOK mode (streamFormat === 'plain'): mirrors the same fix from
   // `@open-design/contracts`'s composer. The daemon hits this path for
@@ -492,8 +501,8 @@ export function composeSystemPrompt({
   // skeleton would conflict. The skill-seed path takes over via
   // `derivePreflight` above, so we only fire the generic skeleton when no
   // skill seed is on offer.
-  const isDeckProject = skillMode === 'deck' || metadata?.kind === 'deck';
-  const isFreeformProject = !skillMode && (!metadata || metadata.kind === 'other');
+  const isDeckProject = activeSkillModes.has('deck') || metadata?.kind === 'deck';
+  const isFreeformProject = activeSkillModes.size === 0 && (!metadata || metadata.kind === 'other');
   const hasSkillSeed =
     !!skillBody && /assets\/template\.html/.test(skillBody);
   if (isDeckProject && !hasSkillSeed) {
@@ -514,9 +523,9 @@ export function composeSystemPrompt({
   }
 
   const isMediaSurface =
-    skillMode === 'image' ||
-    skillMode === 'video' ||
-    skillMode === 'audio' ||
+    activeSkillModes.has('image') ||
+    activeSkillModes.has('video') ||
+    activeSkillModes.has('audio') ||
     metadata?.kind === 'image' ||
     metadata?.kind === 'video' ||
     metadata?.kind === 'audio';
