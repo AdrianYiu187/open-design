@@ -39,6 +39,15 @@ fn run() -> Result<(), Box<dyn Error>> {
                 println!("payloadRoot={}", resolved.payload_root.display());
                 println!("executable={}", resolved.process.executable.display());
                 println!("cwd={}", resolved.process.cwd.display());
+                if let Some(runtime) = &resolved.runtime_launch {
+                    println!("runtimePath={}", runtime.config_path.display());
+                    println!("generation={}", runtime.config.generation);
+                    println!("selectedSlot={}", runtime.selected_slot);
+                    println!("selectedVersion={}", runtime.selected_version.version);
+                    if let Some(error) = &runtime.active_error {
+                        println!("activeError={error}");
+                    }
+                }
             }
         }
         CommandMode::Launch => {
@@ -52,7 +61,13 @@ fn run() -> Result<(), Box<dyn Error>> {
                 println!("{}", serde_json::to_string_pretty(&plan)?);
             } else {
                 println!("namespace={}", plan.namespace);
+                println!("generation={}", plan.generation);
+                println!("selectedSlot={}", plan.selected_slot);
+                println!("selectedVersion={}", plan.selected_version);
                 println!("namespaceRoot={}", plan.namespace_root.display());
+                if let Some(error) = &plan.active_error {
+                    println!("activeError={error}");
+                }
                 for app in &plan.apps {
                     println!("{}={}", app.app, app.stamp.endpoint);
                 }
