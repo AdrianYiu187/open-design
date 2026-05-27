@@ -756,7 +756,7 @@ const overrides: Partial<Record<LandingLocaleCode, Partial<PluginsCopy>>> = {
     detailManifestId: 'ID manifestu',
     detailTags: 'Tagi',
     detailPreviewCaption: 'Podgląd z manifestu bundled-plugin.',
-    detailBucketLabel: { examples: 'Przyklad', 'image-templates': 'Szablon obrazu', 'video-templates': 'Szablon wideo', scenarios: 'Scena', 'design-systems': 'Design system', atoms: 'Atom' },
+    detailBucketLabel: { examples: 'Przykład', 'image-templates': 'Szablon obrazu', 'video-templates': 'Szablon wideo', scenarios: 'Scena', 'design-systems': 'Design system', atoms: 'Atom' },
   },
   ar: {
     hubLabel: 'مكتبة الإضافات', hubHeading: (n) => `${n} قطعة قابلة للتركيب.`,
