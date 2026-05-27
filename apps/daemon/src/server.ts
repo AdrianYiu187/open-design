@@ -91,13 +91,18 @@ import {
   applyPlugin,
   buildConnectorProbe,
   defaultBundledRoot,
+  detectSkillPluginCandidate,
+  dismissSkillPluginCandidate,
   doctorPlugin,
   FIRST_PARTY_ATOMS,
+  generateSkillPluginDraft,
   getInstalledPlugin,
   getSnapshot,
   installFromLocalFolder,
   installPlugin,
+  insertSkillPluginCandidate,
   isDiffReviewSurfaceId,
+  listSkillPluginCandidates,
   listInstalledPlugins,
   listIterationsForRun,
   MissingInputError,
@@ -2005,6 +2010,80 @@ function reconcileAssistantMessageOnRunEnd(db, runs, run) {
     })
     .catch((err) => {
       console.warn('[runs] message reconciliation failed', err);
+    });
+}
+
+function detectSkillPluginCandidateOnRunSuccess(db, runs, run, input, projectRoot) {
+  if (!run.projectId || !run.conversationId) return;
+  void runs
+    .wait(run)
+    .then(async (finalStatus) => {
+      if (finalStatus.status !== 'succeeded') return;
+      const detected = await detectSkillPluginCandidate({
+        projectId: run.projectId,
+        runId: run.id,
+        conversationId: run.conversationId,
+        assistantMessageId: null,
+        message: input?.message ?? input?.currentPrompt,
+        attachments: input?.attachments,
+        projectRoot,
+      });
+      const candidate = detected
+        ? insertSkillPluginCandidate(db, detected)
+        : listSkillPluginCandidates(db, run.projectId)
+            .find((item) => item.status === 'active' && item.conversationId === run.conversationId);
+      if (!candidate || candidate.status === 'dismissed') return;
+      const currentMessagePosition = run.assistantMessageId
+        ? (db.prepare(`SELECT position FROM messages WHERE id = ?`).get(run.assistantMessageId)?.position ?? null)
+        : null;
+      const existingMessagePosition = candidate.assistantMessageId
+        ? (db.prepare(`SELECT position FROM messages WHERE id = ?`).get(candidate.assistantMessageId)?.position ?? null)
+        : null;
+      if (
+        typeof currentMessagePosition === 'number' &&
+        typeof existingMessagePosition === 'number' &&
+        existingMessagePosition > currentMessagePosition
+      ) {
+        return;
+      }
+      const existingMessageId =
+        candidate.assistantMessageId &&
+        candidate.assistantMessageId !== run.assistantMessageId &&
+        typeof existingMessagePosition === 'number' &&
+        typeof currentMessagePosition === 'number' &&
+        existingMessagePosition > currentMessagePosition
+          ? candidate.assistantMessageId
+          : null;
+      const messageId = existingMessageId ?? randomUUID();
+      if (!existingMessageId && candidate.assistantMessageId && candidate.assistantMessageId !== messageId) {
+        db.prepare(`DELETE FROM messages WHERE id = ?`).run(candidate.assistantMessageId);
+      }
+      upsertMessage(db, run.conversationId, {
+        id: messageId,
+        role: 'assistant',
+        content: `Open Design found reusable skill material that can become a plugin: ${candidate.title}`,
+        agentId: run.agentId ?? undefined,
+        events: [{
+          kind: 'plugin_candidate',
+          candidateId: candidate.id,
+          title: candidate.title,
+          description: candidate.description,
+          confidence: candidate.confidence,
+          draftPath: candidate.draftPath ?? null,
+        }],
+        createdAt: Date.now(),
+        endedAt: Date.now(),
+      });
+      if (!candidate.assistantMessageId) {
+        db.prepare(
+          `UPDATE skill_plugin_candidates
+              SET assistant_message_id = ?, updated_at = ?
+            WHERE id = ?`,
+        ).run(messageId, Date.now(), candidate.id);
+      }
+    })
+    .catch((err) => {
+      console.warn('[plugins] skill candidate detection failed', err);
     });
 }
 
@@ -8610,6 +8689,120 @@ export async function startServer({
     }
   });
 
+  app.get('/api/projects/:id/plugin-candidates', (req, res) => {
+    try {
+      const project = getProject(db, req.params.id);
+      if (!project) {
+        sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'project not found');
+        return;
+      }
+      const includeDismissed = req.query.includeDismissed === 'true';
+      res.json({ candidates: listSkillPluginCandidates(db, req.params.id, includeDismissed) });
+    } catch (err) {
+      res.status(400).json({ error: String(err?.message || err) });
+    }
+  });
+
+  app.post('/api/projects/:id/plugin-candidates/:candidateId/dismiss', (req, res) => {
+    if (!isLocalSameOrigin(req, resolvedPort)) {
+      return res.status(403).json({ error: 'cross-origin request rejected' });
+    }
+    const candidate = dismissSkillPluginCandidate(db, req.params.id, req.params.candidateId);
+    if (!candidate) {
+      sendApiError(res, 404, 'NOT_FOUND', 'plugin candidate not found');
+      return;
+    }
+    if (candidate.assistantMessageId) {
+      db.prepare(`DELETE FROM messages WHERE id = ?`).run(candidate.assistantMessageId);
+    }
+    res.json({ ok: true, candidate });
+  });
+
+  app.post('/api/projects/:id/plugin-candidates/:candidateId/draft', async (req, res) => {
+    if (!isLocalSameOrigin(req, resolvedPort)) {
+      return res.status(403).json({ error: 'cross-origin request rejected' });
+    }
+    try {
+      const project = getProject(db, req.params.id);
+      if (!project) {
+        sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'project not found');
+        return;
+      }
+      const projectRoot = resolveProjectDir(PROJECTS_DIR, req.params.id, project.metadata);
+      const result = await generateSkillPluginDraft(db, projectRoot, req.params.id, req.params.candidateId);
+      if (!result) {
+        sendApiError(res, 404, 'NOT_FOUND', 'plugin candidate not found');
+        return;
+      }
+      res.status(result.ok ? 200 : 422).json(result);
+    } catch (err) {
+      res.status(400).json({ ok: false, message: String(err?.message || err) });
+    }
+  });
+
+  app.post('/api/projects/:id/plugin-candidates/:candidateId/share-tasks', async (req, res) => {
+    if (!isLocalSameOrigin(req, resolvedPort)) {
+      return res.status(403).json({ error: 'cross-origin request rejected' });
+    }
+    try {
+      const project = getProject(db, req.params.id);
+      if (!project) {
+        sendApiError(res, 404, 'PROJECT_NOT_FOUND', 'project not found');
+        return;
+      }
+      const body = req.body && typeof req.body === 'object' ? req.body : {};
+      const action = body.action === 'publish-github' || body.action === 'contribute-open-design'
+        ? body.action
+        : null;
+      if (!action) {
+        sendApiError(res, 400, 'BAD_REQUEST', 'plugin share action is required');
+        return;
+      }
+      const projectRoot = resolveProjectDir(PROJECTS_DIR, req.params.id, project.metadata);
+      const draft = await generateSkillPluginDraft(db, projectRoot, req.params.id, req.params.candidateId);
+      if (!draft) {
+        sendApiError(res, 404, 'NOT_FOUND', 'plugin candidate not found');
+        return;
+      }
+      if (!draft.validation.ok) {
+        res.status(422).json({
+          ok: false,
+          code: 'plugin-draft-invalid',
+          message: 'Generated plugin draft is invalid.',
+          draft,
+        });
+        return;
+      }
+      const taskId = randomUUID();
+      const task = createPluginShareTask(taskId, req.params.id, {
+        action,
+        path: draft.draftPath,
+      });
+      task.status = 'running';
+      notifyPluginShareTaskWaiters(task);
+      void runPluginShareTask(task, draft.folder).catch((err) => {
+        task.status = 'failed';
+        task.error = {
+          code: 'plugin-share-task-failed',
+          message: String(err?.message || err),
+          log: [String(err?.stack || err?.message || err)],
+        };
+        task.endedAt = Date.now();
+        notifyPluginShareTaskWaiters(task);
+      });
+      res.status(202).json({
+        taskId,
+        action,
+        path: draft.draftPath,
+        status: task.status,
+        startedAt: task.startedAt,
+        draft,
+      });
+    } catch (err) {
+      res.status(400).json({ ok: false, message: String(err?.message || err) });
+    }
+  });
+
   app.post('/api/projects/:id/plugins/contribute-open-design', async (req, res) => {
     try {
       const project = getProject(db, req.params.id);
@@ -11776,6 +11969,15 @@ export async function startServer({
       });
     }
     reconcileAssistantMessageOnRunEnd(db, design.runs, run);
+    if (run.projectId && run.conversationId) {
+      try {
+        const project = getProject(db, run.projectId);
+        const projectRoot = resolveProjectDir(PROJECTS_DIR, run.projectId, project?.metadata);
+        detectSkillPluginCandidateOnRunSuccess(db, design.runs, run, req.body || {}, projectRoot);
+      } catch (err) {
+        console.warn('[plugins] skill candidate hook setup failed', err);
+      }
+    }
     design.runs.start(run, () => startChatRun(meta, run));
 
     // Analytics v2: emit run_created (daemon-side authoritative) and
