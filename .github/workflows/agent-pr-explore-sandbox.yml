@@ -10,6 +10,11 @@ on:
         description: Pull request number to explore.
         required: true
         type: string
+      skip_comment:
+        description: Skip posting the exploration report comment on the PR (the report is still uploaded as an artifact). Use for validation/dry runs.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -127,7 +132,7 @@ jobs:
           retention-days: 7
 
       - name: Comment exploration report
-        if: always()
+        if: ${{ always() && !inputs.skip_comment }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
