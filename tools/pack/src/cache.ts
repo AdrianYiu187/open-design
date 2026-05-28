@@ -28,7 +28,7 @@ export type CacheAcquireReport = {
   entryPath: string;
   key: string;
   keyHash: string;
-  materialized: Array<{ durationMs: number; from: string; to: string }>;
+  materialized: Array<{ durationMs: number; from: string; skipped?: boolean; to: string }>;
   nodeId: string;
   outputs: string[];
   reason: string | null;
@@ -54,6 +54,16 @@ export type CacheNode<TMetadata> = {
 
 export type CacheMaterializeTarget = {
   from: string;
+  reuse?: boolean;
+  reuseRequiredPaths?: string[][];
+  to: string;
+};
+
+type CacheMaterializationMarker = {
+  from: string;
+  keyHash: string;
+  nodeId: string;
+  schemaVersion: number;
   to: string;
 };
 
@@ -102,6 +112,28 @@ async function writeManifest<TMetadata>(
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 }
 
+async function readMaterializationMarker(markerPath: string): Promise<CacheMaterializationMarker | null> {
+  try {
+    return JSON.parse(await readFile(markerPath, "utf8")) as CacheMaterializationMarker;
+  } catch {
+    return null;
+  }
+}
+
+async function materializedTargetIsReusable(target: CacheMaterializeTarget): Promise<boolean> {
+  if (!(await pathExists(target.to))) return false;
+  for (const candidates of target.reuseRequiredPaths ?? []) {
+    const hasCandidate = await Promise.any(
+      candidates.map(async (candidate) => {
+        if (!(await pathExists(join(target.to, candidate)))) throw new Error(candidate);
+        return true;
+      }),
+    ).catch(() => false);
+    if (!hasCandidate) return false;
+  }
+  return true;
+}
+
 export class ToolPackCache {
   readonly #entries: CacheAcquireReport[] = [];
 
@@ -130,6 +162,47 @@ export class ToolPackCache {
     let reason: string | null = null;
 
     const materialized: CacheAcquireReport["materialized"] = [];
+    const materializeTarget = async (target: CacheMaterializeTarget): Promise<void> => {
+      const materializeStartedAt = Date.now();
+      const normalizedFrom = normalizeRelativePath(target.from);
+      const markerPath = join(this.root, "materialized", hashText(target.to), "marker.json");
+      if (target.reuse === true && await materializedTargetIsReusable(target)) {
+        const marker = await readMaterializationMarker(markerPath);
+        if (
+          marker?.schemaVersion === 1 &&
+          marker.nodeId === node.id &&
+          marker.keyHash === keyHash &&
+          marker.from === normalizedFrom &&
+          marker.to === target.to
+        ) {
+          materialized.push({
+            durationMs: Date.now() - materializeStartedAt,
+            from: normalizedFrom,
+            skipped: true,
+            to: target.to,
+          });
+          return;
+        }
+      }
+
+      const sourcePath = join(entryPath, target.from);
+      await rm(target.to, { force: true, recursive: true });
+      await mkdir(dirname(target.to), { recursive: true });
+      await cp(sourcePath, target.to, { recursive: true });
+      await mkdir(dirname(markerPath), { recursive: true });
+      await writeFile(markerPath, `${JSON.stringify({
+        from: normalizedFrom,
+        keyHash,
+        nodeId: node.id,
+        schemaVersion: 1,
+        to: target.to,
+      } satisfies CacheMaterializationMarker, null, 2)}\n`, "utf8");
+      materialized.push({
+        durationMs: Date.now() - materializeStartedAt,
+        from: normalizedFrom,
+        to: target.to,
+      });
+    };
     const manifest = await withDirectoryLock(join(this.root, "locks"), "global", async () => {
       await mkdir(dirname(entryPath), { recursive: true });
       const existingManifest = await readManifest<TMetadata>(manifestPath);
@@ -184,16 +257,7 @@ export class ToolPackCache {
       })();
 
       for (const target of materialize) {
-        const materializeStartedAt = Date.now();
-        const sourcePath = join(entryPath, target.from);
-        await rm(target.to, { force: true, recursive: true });
-        await mkdir(dirname(target.to), { recursive: true });
-        await cp(sourcePath, target.to, { recursive: true });
-        materialized.push({
-          durationMs: Date.now() - materializeStartedAt,
-          from: normalizeRelativePath(target.from),
-          to: target.to,
-        });
+        await materializeTarget(target);
       }
 
       return nextManifest;
@@ -226,6 +290,47 @@ export class ToolPackCache {
     const manifestPath = join(entryPath, "manifest.json");
     const outputs = node.outputs.map(normalizeRelativePath);
     const materialized: CacheAcquireReport["materialized"] = [];
+    const materializeTarget = async (target: CacheMaterializeTarget): Promise<void> => {
+      const materializeStartedAt = Date.now();
+      const normalizedFrom = normalizeRelativePath(target.from);
+      const markerPath = join(this.root, "materialized", hashText(target.to), "marker.json");
+      if (target.reuse === true && await materializedTargetIsReusable(target)) {
+        const marker = await readMaterializationMarker(markerPath);
+        if (
+          marker?.schemaVersion === 1 &&
+          marker.nodeId === node.id &&
+          marker.keyHash === keyHash &&
+          marker.from === normalizedFrom &&
+          marker.to === target.to
+        ) {
+          materialized.push({
+            durationMs: Date.now() - materializeStartedAt,
+            from: normalizedFrom,
+            skipped: true,
+            to: target.to,
+          });
+          return;
+        }
+      }
+
+      const sourcePath = join(entryPath, target.from);
+      await rm(target.to, { force: true, recursive: true });
+      await mkdir(dirname(target.to), { recursive: true });
+      await cp(sourcePath, target.to, { recursive: true });
+      await mkdir(dirname(markerPath), { recursive: true });
+      await writeFile(markerPath, `${JSON.stringify({
+        from: normalizedFrom,
+        keyHash,
+        nodeId: node.id,
+        schemaVersion: 1,
+        to: target.to,
+      } satisfies CacheMaterializationMarker, null, 2)}\n`, "utf8");
+      materialized.push({
+        durationMs: Date.now() - materializeStartedAt,
+        from: normalizedFrom,
+        to: target.to,
+      });
+    };
 
     const manifest = await withDirectoryLock(join(this.root, "locks"), "global", async () => {
       const existingManifest = await readManifest<TMetadata>(manifestPath);
@@ -237,16 +342,7 @@ export class ToolPackCache {
       if ((await node.invalidate({ entryRoot: entryPath, manifest: existingManifest })) != null) return null;
 
       for (const target of materialize) {
-        const materializeStartedAt = Date.now();
-        const sourcePath = join(entryPath, target.from);
-        await rm(target.to, { force: true, recursive: true });
-        await mkdir(dirname(target.to), { recursive: true });
-        await cp(sourcePath, target.to, { recursive: true });
-        materialized.push({
-          durationMs: Date.now() - materializeStartedAt,
-          from: normalizeRelativePath(target.from),
-          to: target.to,
-        });
+        await materializeTarget(target);
       }
 
       return existingManifest;

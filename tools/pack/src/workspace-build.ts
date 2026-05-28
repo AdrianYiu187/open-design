@@ -42,6 +42,7 @@ type WorkspaceBuildMetadata = {
 
 type WorkspaceBuildArtifact = {
   cachePath: string;
+  requiredPathGroups: string[][];
   workspacePath: string;
 };
 
@@ -137,10 +138,20 @@ function workspaceBuildArtifacts(config: ToolPackConfig): WorkspaceBuildArtifact
   } else {
     artifacts.push("apps/web/.next/BUILD_ID");
   }
-  return artifacts.map((workspacePath) => ({
-    cachePath: join("outputs", ...workspacePath.split("/")),
-    workspacePath,
-  }));
+  const outputFiles = workspaceBuildOutputFiles(config);
+  return artifacts.map((workspacePath) => {
+    const requiredPathGroups = outputFiles.flatMap((output) => {
+      const candidates = output.split("|")
+        .filter((candidate) => candidate === workspacePath || candidate.startsWith(`${workspacePath}/`))
+        .map((candidate) => relative(workspacePath, candidate));
+      return candidates.length === 0 ? [] : [candidates];
+    });
+    return {
+      cachePath: join("outputs", ...workspacePath.split("/")),
+      requiredPathGroups,
+      workspacePath,
+    };
+  });
 }
 
 async function stripBrokenSymlinks(rootPath: string): Promise<void> {
@@ -258,6 +269,8 @@ export async function ensureWorkspaceBuildArtifacts(
   await cache.acquire<WorkspaceBuildMetadata>({
     materialize: artifacts.map((artifact) => ({
       from: artifact.cachePath,
+      reuse: true,
+      reuseRequiredPaths: artifact.requiredPathGroups,
       to: join(config.workspaceRoot, artifact.workspacePath),
     })),
     node: {

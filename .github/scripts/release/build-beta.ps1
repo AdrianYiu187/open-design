@@ -168,6 +168,7 @@ function Get-CacheSummary {
           from = $_.from
           to = $_.to
           durationMs = $_.durationMs
+          skipped = $_.skipped
         }
       })
     }
@@ -242,7 +243,8 @@ function Write-IndexAndSummary([string]$Status) {
       $summary += "- $($entry.nodeId): ``$($entry.status)`` ``$(Format-Duration $entry.durationMs)``"
       $slowMaterialized = @($entry.materialized | Sort-Object durationMs -Descending | Select-Object -First 5)
       foreach ($materialized in $slowMaterialized) {
-        $summary += "  - materialize $($materialized.from): ``$(Format-Duration $materialized.durationMs)``"
+        $mode = if ($materialized.skipped) { "reuse" } else { "copy" }
+        $summary += "  - materialize $($materialized.from): ``$(Format-Duration $materialized.durationMs)`` $mode"
       }
     }
   }

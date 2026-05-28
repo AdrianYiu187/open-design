@@ -122,4 +122,40 @@ describe("ToolPackCache", () => {
       await rm(root, { force: true, recursive: true });
     }
   });
+
+  it("reuses stamped materialized targets until the cache key changes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "open-design-tools-pack-cache-reuse-"));
+    const cacheRoot = join(root, "cache");
+    const out = join(root, "out", "payload");
+    let builds = 0;
+    const cache = new ToolPackCache(cacheRoot);
+    const createNode = (key: string) => ({
+      id: "test.reuse",
+      key,
+      outputs: ["payload"],
+      invalidate: async () => null,
+      build: async ({ entryRoot }: { entryRoot: string }) => {
+        builds += 1;
+        await mkdir(join(entryRoot, "payload"), { recursive: true });
+        await writeFile(join(entryRoot, "payload", "value.txt"), `build-${builds}\n`, "utf8");
+        return { builds };
+      },
+    });
+
+    try {
+      await cache.acquire({ materialize: [{ from: "payload", reuse: true, to: out }], node: createNode("key-1") });
+      await writeFile(join(out, "value.txt"), "mutated\n", "utf8");
+      await cache.acquire({ materialize: [{ from: "payload", reuse: true, to: out }], node: createNode("key-1") });
+
+      expect(await readFile(join(out, "value.txt"), "utf8")).toBe("mutated\n");
+      expect(cache.report().entries.at(-1)?.materialized[0]?.skipped).toBe(true);
+
+      await cache.acquire({ materialize: [{ from: "payload", reuse: true, to: out }], node: createNode("key-2") });
+
+      expect(await readFile(join(out, "value.txt"), "utf8")).toBe("build-2\n");
+      expect(cache.report().entries.at(-1)?.materialized[0]?.skipped).toBeUndefined();
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
 });
