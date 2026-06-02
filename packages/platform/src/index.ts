@@ -92,7 +92,14 @@ type WindowsProcessRecord = {
   ProcessId?: number | string | null;
 };
 
-const CANONICAL_PROXY_ENV_KEYS = new Map<string, "ALL_PROXY" | "HTTP_PROXY" | "HTTPS_PROXY" | "NODE_USE_ENV_PROXY" | "NO_PROXY">([
+type ProxyEnvKey =
+  | "ALL_PROXY"
+  | "HTTP_PROXY"
+  | "HTTPS_PROXY"
+  | "NODE_USE_ENV_PROXY"
+  | "NO_PROXY";
+
+const CANONICAL_PROXY_ENV_KEYS = new Map<string, ProxyEnvKey>([
   ["all_proxy", "ALL_PROXY"],
   ["http_proxy", "HTTP_PROXY"],
   ["https_proxy", "HTTPS_PROXY"],
@@ -109,9 +116,7 @@ function defaultSystemProxyCommandRunner(command: string, args: string[]): strin
   });
 }
 
-function canonicalProxyEnvKey(
-  key: string,
-): "ALL_PROXY" | "HTTP_PROXY" | "HTTPS_PROXY" | "NODE_USE_ENV_PROXY" | "NO_PROXY" | null {
+function canonicalProxyEnvKey(key: string): ProxyEnvKey | null {
   return CANONICAL_PROXY_ENV_KEYS.get(key.toLowerCase()) ?? null;
 }
 
@@ -123,7 +128,7 @@ function deleteProxyEnvVariants(env: NodeJS.ProcessEnv, canonicalKey: string): v
 
 function setCanonicalProxyEnvValue(
   env: NodeJS.ProcessEnv,
-  canonicalKey: "ALL_PROXY" | "HTTP_PROXY" | "HTTPS_PROXY" | "NODE_USE_ENV_PROXY" | "NO_PROXY",
+  canonicalKey: ProxyEnvKey,
   value: string,
   platform: NodeJS.Platform,
 ): void {
@@ -142,7 +147,7 @@ export function mergeProxyAwareEnv(
   const merged: NodeJS.ProcessEnv = {};
   for (const source of sources) {
     const proxyEntries = new Map<
-      "ALL_PROXY" | "HTTP_PROXY" | "HTTPS_PROXY" | "NODE_USE_ENV_PROXY" | "NO_PROXY",
+      ProxyEnvKey,
       { preferLowercase: boolean; value: string }
     >();
     for (const [key, value] of Object.entries(source)) {
@@ -170,7 +175,7 @@ export function mergeProxyAwareEnv(
 
 function hasCanonicalProxyEnv(
   env: NodeJS.ProcessEnv,
-  canonicalKey: "ALL_PROXY" | "HTTP_PROXY" | "HTTPS_PROXY" | "NODE_USE_ENV_PROXY" | "NO_PROXY",
+  canonicalKey: ProxyEnvKey,
 ): boolean {
   return Object.keys(env).some((key) => key.toLowerCase() === canonicalKey.toLowerCase());
 }
@@ -342,8 +347,14 @@ export function parseMacosScutilProxyOutput(
   );
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function parseRegistryValue(stdout: string, valueName: string): string | null {
-  const match = stdout.match(new RegExp(`^\\s*${valueName}\\s+REG_\\w+\\s+(.+)$`, "m"));
+  const match = stdout.match(
+    new RegExp(`^\\s*${escapeRegExp(valueName)}\\s+REG_\\w+\\s+(.+)$`, "im"),
+  );
   return match ? match[1].trim() : null;
 }
 
@@ -386,6 +397,28 @@ export function parseWindowsInternetSettingsProxyOutput(
   );
 }
 
+export function parseWindowsUserEnvironmentProxyOutput(
+  input: Partial<Record<ProxyEnvKey, string>>,
+  platform: NodeJS.Platform = "win32",
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, stdout] of Object.entries(input)) {
+    if (!stdout) continue;
+    const value = parseRegistryValue(stdout, key);
+    if (!value) continue;
+    setCanonicalProxyEnvValue(
+      env,
+      key as ProxyEnvKey,
+      value,
+      platform,
+    );
+  }
+  if (hasProxyEndpointEnv(env) && !hasCanonicalProxyEnv(env, "NODE_USE_ENV_PROXY")) {
+    env.NODE_USE_ENV_PROXY = "1";
+  }
+  return env;
+}
+
 export function resolveSystemProxyEnv(options: ResolveSystemProxyEnvOptions = {}): NodeJS.ProcessEnv {
   const platform = options.platform ?? process.platform;
   const runCommand = options.runCommand ?? defaultSystemProxyCommandRunner;
@@ -401,28 +434,66 @@ export function resolveSystemProxyEnv(options: ResolveSystemProxyEnvOptions = {}
       return parseMacosScutilProxyOutput(tryRun("scutil", ["--proxy"]), platform);
     }
     if (platform === "win32") {
-      return parseWindowsInternetSettingsProxyOutput(
-        {
-          proxyEnable: tryRun("reg", [
-            "query",
-            "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
-            "/v",
-            "ProxyEnable",
-          ]),
-          proxyOverride: tryRun("reg", [
-            "query",
-            "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
-            "/v",
-            "ProxyOverride",
-          ]),
-          proxyServer: tryRun("reg", [
-            "query",
-            "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
-            "/v",
-            "ProxyServer",
-          ]),
-        },
+      return mergeProxyAwareEnv(
         platform,
+        parseWindowsInternetSettingsProxyOutput(
+          {
+            proxyEnable: tryRun("reg", [
+              "query",
+              "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
+              "/v",
+              "ProxyEnable",
+            ]),
+            proxyOverride: tryRun("reg", [
+              "query",
+              "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
+              "/v",
+              "ProxyOverride",
+            ]),
+            proxyServer: tryRun("reg", [
+              "query",
+              "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
+              "/v",
+              "ProxyServer",
+            ]),
+          },
+          platform,
+        ),
+        parseWindowsUserEnvironmentProxyOutput(
+          {
+            HTTP_PROXY: tryRun("reg", [
+              "query",
+              "HKCU\\Environment",
+              "/v",
+              "HTTP_PROXY",
+            ]),
+            HTTPS_PROXY: tryRun("reg", [
+              "query",
+              "HKCU\\Environment",
+              "/v",
+              "HTTPS_PROXY",
+            ]),
+            ALL_PROXY: tryRun("reg", [
+              "query",
+              "HKCU\\Environment",
+              "/v",
+              "ALL_PROXY",
+            ]),
+            NO_PROXY: tryRun("reg", [
+              "query",
+              "HKCU\\Environment",
+              "/v",
+              "NO_PROXY",
+            ]),
+            NODE_USE_ENV_PROXY: tryRun("reg", [
+              "query",
+              "HKCU\\Environment",
+              "/v",
+              "NODE_USE_ENV_PROXY",
+            ]),
+          },
+          platform,
+        ),
       );
     }
   } catch {

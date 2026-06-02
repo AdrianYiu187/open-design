@@ -13,6 +13,7 @@ import {
   matchesStampedProcess,
   parseMacosScutilProxyOutput,
   parseWindowsInternetSettingsProxyOutput,
+  parseWindowsUserEnvironmentProxyOutput,
   pathContains,
   readProcessStampFromCommand,
   removePathBestEffort,
@@ -395,6 +396,30 @@ HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settin
     expect(env.NO_PROXY).toBe("*");
   });
 
+  it("parses Windows user-level proxy env values from HKCU Environment", () => {
+    const env = parseWindowsUserEnvironmentProxyOutput({
+      HTTP_PROXY: `
+HKEY_CURRENT_USER\\Environment
+    http_proxy    REG_SZ    http://127.0.0.1:7890
+`,
+      HTTPS_PROXY: `
+HKEY_CURRENT_USER\\Environment
+    HTTPS_PROXY    REG_EXPAND_SZ    http://127.0.0.1:7890
+`,
+      NO_PROXY: `
+HKEY_CURRENT_USER\\Environment
+    NO_PROXY    REG_SZ    localhost,127.0.0.1
+`,
+    });
+
+    expect(env).toEqual({
+      HTTP_PROXY: "http://127.0.0.1:7890",
+      HTTPS_PROXY: "http://127.0.0.1:7890",
+      NO_PROXY: "localhost,127.0.0.1",
+      NODE_USE_ENV_PROXY: "1",
+    });
+  });
+
   it("resolves macOS system proxy env through the command runner", () => {
     const env = resolveSystemProxyEnv({
       platform: "darwin",
@@ -412,6 +437,68 @@ HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settin
     });
 
     expect(env.HTTP_PROXY).toBe("http://127.0.0.1:8888");
+    expect(env.NODE_USE_ENV_PROXY).toBe("1");
+  });
+
+  it("resolves Windows user-level proxy env through the command runner", () => {
+    const env = resolveSystemProxyEnv({
+      platform: "win32",
+      runCommand(command, args) {
+        expect(command).toBe("reg");
+        const valueName = args.at(-1);
+        if (args.includes("HKCU\\Environment") && valueName === "HTTP_PROXY") {
+          return `
+HKEY_CURRENT_USER\\Environment
+    HTTP_PROXY    REG_SZ    http://127.0.0.1:7890
+`;
+        }
+        if (args.includes("HKCU\\Environment") && valueName === "HTTPS_PROXY") {
+          return `
+HKEY_CURRENT_USER\\Environment
+    HTTPS_PROXY    REG_SZ    http://127.0.0.1:7890
+`;
+        }
+        return "";
+      },
+    });
+
+    expect(env.HTTP_PROXY).toBe("http://127.0.0.1:7890");
+    expect(env.HTTPS_PROXY).toBe("http://127.0.0.1:7890");
+    expect(env.NODE_USE_ENV_PROXY).toBe("1");
+  });
+
+  it("lets Windows user-level proxy env override Internet Settings proxy values", () => {
+    const env = resolveSystemProxyEnv({
+      platform: "win32",
+      runCommand(_command, args) {
+        const valueName = args.at(-1);
+        if (args.includes("HKCU\\Environment") && valueName === "HTTP_PROXY") {
+          return `
+HKEY_CURRENT_USER\\Environment
+    HTTP_PROXY    REG_SZ    http://env-proxy:7890
+`;
+        }
+        const isInternetSettings = args.includes(
+          "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings",
+        );
+        if (isInternetSettings && valueName === "ProxyEnable") {
+          return `
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyEnable    REG_DWORD    0x1
+`;
+        }
+        if (isInternetSettings && valueName === "ProxyServer") {
+          return `
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings
+    ProxyServer    REG_SZ    http://internet-settings:8080
+`;
+        }
+        return "";
+      },
+    });
+
+    expect(env.HTTP_PROXY).toBe("http://env-proxy:7890");
+    expect(env.HTTPS_PROXY).toBe("http://internet-settings:8080");
     expect(env.NODE_USE_ENV_PROXY).toBe("1");
   });
 
