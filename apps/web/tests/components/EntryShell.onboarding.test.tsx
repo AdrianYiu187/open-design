@@ -522,6 +522,80 @@ describe('EntryShell onboarding Open Design AMR runtime', () => {
     });
   });
 
+  it('submits the optional newsletter email when finishing the About-you step', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      void init;
+      const url = String(input);
+      if (url.endsWith('/api/integrations/vela/status')) {
+        return jsonResponse({
+          loggedIn: true,
+          profile: 'prod',
+          configPath: '/x',
+          user: { id: 'u', email: 'user@example.com' },
+        });
+      }
+      if (url.endsWith('/subscribe')) {
+        return jsonResponse({ ok: true });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+    renderOnboarding();
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Continue$/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'About you' })).toBeTruthy();
+    });
+
+    const emailInput = document.querySelector('.onboarding-view__email-input');
+    expect(emailInput).toBeInstanceOf(HTMLInputElement);
+    expect((emailInput as HTMLInputElement).placeholder).toBe('you@studio.com');
+
+    fireEvent.change(emailInput as HTMLInputElement, {
+      target: { value: '  Tester@Studio.com  ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^Continue$/i }));
+
+    const subscribeCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/subscribe'));
+    expect(subscribeCall).toBeTruthy();
+    expect(JSON.parse(String(subscribeCall?.[1]?.body))).toEqual({
+      email: 'tester@studio.com',
+      source: 'client',
+    });
+
+    expect(findTrackedEvent('ui_click', (payload) => payload.element === 'newsletter_email')).toMatchObject({
+      page_name: 'onboarding',
+      element: 'newsletter_email',
+      action: 'subscribe',
+      newsletter_opt_in: true,
+    });
+  });
+
+  it('skips the newsletter request when the email field is left blank', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/api/integrations/vela/status')) {
+        return jsonResponse({
+          loggedIn: true,
+          profile: 'prod',
+          configPath: '/x',
+          user: { id: 'u', email: 'user@example.com' },
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+    renderOnboarding();
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Continue$/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'About you' })).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^Continue$/i }));
+
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/subscribe'))).toBe(false);
+  });
+
   it('persists the BYOK config before finishing onboarding', async () => {
     globalThis.fetch = vi.fn(async (input, init) => {
       const url = String(input);

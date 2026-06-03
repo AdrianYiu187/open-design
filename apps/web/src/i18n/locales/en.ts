@@ -2609,15 +2609,8 @@ export const en: Dict = {
   'updater.readyVersion': 'Open Design {version} is ready. Open Design will close and open the installer.',
   'updater.upToDate': "You're already on the latest version.",
 
-  'newsletter.title': 'The Open Design newsletter',
-  'newsletter.lead':
-    'New templates, design-system drops, ambassador work, and product updates — straight to your inbox.',
+  'newsletter.label': 'Newsletter (optional)',
   'newsletter.placeholder': 'you@studio.com',
-  'newsletter.subscribe': 'Subscribe',
-  'newsletter.subscribing': 'Subscribing…',
-  'newsletter.success': 'You’re in. Watch your inbox.',
-  'newsletter.error': 'Something went wrong. Try again.',
-  'newsletter.dismiss': 'Close',
   'settings.memoryModelInlineLabel': 'Memory model',
   'settings.memoryModelInlineSameAsChat': 'Same as chat',
   'settings.memoryModelInlineSameAsChatWithModel': 'Same as chat ({model})',

@@ -75,7 +75,6 @@ import { DesignSystemPreviewModal } from './DesignSystemPreviewModal';
 import { DesignSystemsTab } from './DesignSystemsTab';
 import { EntryNavRail, type EntryView as EntryViewKind } from './EntryNavRail';
 import { UpdaterPopup } from './UpdaterPopup';
-import { NewsletterPopup } from './NewsletterPopup';
 import { GithubStarBadge } from './GithubStarBadge';
 import { HomeView } from './HomeView';
 import {
@@ -134,6 +133,14 @@ import {
 // and `/api/runs` fallbacks resolve to the same plugin id when no
 // `pluginId` is on the request body — plan §3.3 of
 // `specs/current/plugin-driven-flow-plan.md`.
+// Newsletter signup endpoint. Lives on the marketing site (Cloudflare Pages
+// Function backed by KV), so this is a cross-origin POST from the desktop
+// client. Overridable at build time via NEXT_PUBLIC_NEWSLETTER_URL — e.g. point
+// it at a local `wrangler pages dev` instance during development.
+const NEWSLETTER_SUBSCRIBE_URL =
+  process.env.NEXT_PUBLIC_NEWSLETTER_URL ?? 'https://open-design.ai/subscribe';
+const NEWSLETTER_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 const ONBOARDING_AMR_MODEL_OPTIONS: NonNullable<AgentInfo['models']> = [
   { id: 'claude-opus-4.8', label: 'Claude Opus 4.8' },
   { id: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash' },
@@ -776,7 +783,6 @@ export function EntryShell({
         }}
         onClose={() => setNewProjectOpen(false)}
       />
-      <NewsletterPopup />
     </div>
   );
 }
@@ -864,6 +870,7 @@ function OnboardingView({
     orgSize: '',
     useCase: [] as string[],
     source: '',
+    email: '',
   });
   // Live mirror of `profile` so closures that fire faster than React
   // commits (rapid dropdown picks, the Finish-setup click after the
@@ -1373,6 +1380,7 @@ function OnboardingView({
       // `onboarding_complete_result` give the funnel two independent
       // paths for the same data.
       emitAboutYouSubmit();
+      submitNewsletterEmail(profileRef.current.email);
       emitOnboardingClick('continue', 'continue');
       // Last-step Continue without a DS generation = "completed
       // without design system". The Generate path inside the
@@ -1445,6 +1453,23 @@ function OnboardingView({
       organization_size: snapshot.orgSize || 'unknown',
       use_cases: snapshot.useCase.length > 0 ? snapshot.useCase : ['unknown'],
       discovery_source: snapshot.source || 'unknown',
+    });
+  }
+
+  // Optional newsletter signup captured on the About-you step. Fire-and-forget
+  // so a slow or failing request never blocks finishing onboarding; a blank or
+  // malformed email is simply skipped. Only a boolean opt-in is tracked — the
+  // address itself is never sent to analytics.
+  function submitNewsletterEmail(rawEmail: string): void {
+    const email = rawEmail.trim().toLowerCase();
+    if (!email || !NEWSLETTER_EMAIL_RE.test(email)) return;
+    emitOnboardingClick('newsletter_email', 'subscribe', { newsletter_opt_in: true });
+    void fetch(NEWSLETTER_SUBSCRIBE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, source: 'client' }),
+    }).catch(() => {
+      // Swallow — onboarding completion must not depend on the marketing site.
     });
   }
 
@@ -1850,6 +1875,22 @@ function OnboardingView({
                   }}
                 />
               </div>
+              <label className="onboarding-view__email-field">
+                <span className="onboarding-view__email-label">
+                  {t('newsletter.label')}
+                </span>
+                <input
+                  className="onboarding-view__email-input"
+                  type="email"
+                  autoComplete="email"
+                  inputMode="email"
+                  placeholder={t('newsletter.placeholder')}
+                  value={profile.email}
+                  onChange={(event) =>
+                    setProfile((current) => ({ ...current, email: event.target.value }))
+                  }
+                />
+              </label>
             </div>
           ) : null}
 

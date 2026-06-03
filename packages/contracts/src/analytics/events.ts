@@ -474,6 +474,8 @@ export type TrackingOnboardingClickElement =
   | 'organization_size'
   | 'use_case'
   | 'hear_about_us'
+  // Optional newsletter email captured on the About-you step
+  | 'newsletter_email'
   // Fires once on Finish-setup, carrying the full survey snapshot
   // (role + organization_size + use_case + discovery_source) so the
   // funnel always has the user's final picks even when individual
@@ -495,7 +497,8 @@ export type TrackingOnboardingClickAction =
   | 'select_option'
   | 'add_source'
   | 'upload_source'
-  | 'show_access_methods';
+  | 'show_access_methods'
+  | 'subscribe';
 
 // All optional except the discriminators (area/element/action/step/
 // session id). `role`/`organization_size`/`use_case`/`discovery_source`
@@ -526,6 +529,9 @@ export interface OnboardingClickProps {
   source_type?: TrackingOnboardingSourceType;
   has_brand_description?: boolean;
   source_count?: number;
+  // True when the user left a (valid) newsletter email on the About-you
+  // step. Boolean only — the email address itself is never sent here.
+  newsletter_opt_in?: boolean;
 }
 
 // ---- Onboarding lifecycle result events ---------------------------------
