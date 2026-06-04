@@ -98,6 +98,28 @@ describe('AssistantMessage — chat file-link routing (#1239)', () => {
     expect(clickEvent.defaultPrevented).toBe(true);
   });
 
+  it('does not route app file URLs for a different project through the current workspace opener', () => {
+    const onRequestOpenFile = vi.fn();
+    const { container } = render(
+      <AssistantMessage
+        message={messageWithText('Open [index.html](/projects/other-project/files/index.html).')}
+        streaming={false}
+        projectId="project-1"
+        projectFileNames={new Set(['index.html'])}
+        onRequestOpenFile={onRequestOpenFile}
+      />,
+    );
+
+    const anchor = container.querySelector('a.md-link');
+    expect(anchor).not.toBeNull();
+
+    const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
+    anchor!.dispatchEvent(clickEvent);
+
+    expect(onRequestOpenFile).not.toHaveBeenCalled();
+    expect(clickEvent.defaultPrevented).toBe(false);
+  });
+
   it('routes same-origin absolute project raw URLs through onRequestOpenFile', () => {
     const onRequestOpenFile = vi.fn();
     const href = `${window.location.origin}/api/projects/project-1/raw/Web%20Prototype%20mutuals-v2.html`;

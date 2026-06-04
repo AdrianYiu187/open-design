@@ -18,14 +18,18 @@
 export function asInProjectFilePath(
   href: string | null | undefined,
   projectFileNames?: ReadonlySet<string>,
+  projectId?: string | null,
 ): string | null {
   if (typeof href !== 'string') return null;
   const trimmed = href.trim();
   if (!trimmed) return null;
   if (trimmed.startsWith('#')) return null;
   const normalizedHref = normalizeSameOriginHref(trimmed);
-  const appRoutePath = extractAppProjectFilePath(normalizedHref);
-  if (appRoutePath) return normalizeProjectFilePath(appRoutePath);
+  const appRoute = extractAppProjectFileRoute(normalizedHref);
+  if (appRoute) {
+    if (projectId && appRoute.projectId !== projectId) return null;
+    return normalizeProjectFilePath(appRoute.filePath);
+  }
   const knownProjectFilePath = matchKnownProjectFilePath(normalizedHref, projectFileNames);
   if (knownProjectFilePath) return knownProjectFilePath;
   // RFC 3986 scheme: ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ) followed by `:`.
@@ -52,20 +56,37 @@ function normalizeSameOriginHref(href: string): string {
   }
 }
 
-function extractAppProjectFilePath(href: string): string | null {
+interface AppProjectFileRoute {
+  projectId: string;
+  filePath: string;
+}
+
+function extractAppProjectFileRoute(href: string): AppProjectFileRoute | null {
   const withoutHash = href.split('#')[0] ?? href;
   const withoutQuery = withoutHash.split('?')[0] ?? withoutHash;
   const patterns = [
-    /^\/api\/projects\/[^/]+\/raw\/(.+)$/i,
-    /^\/api\/projects\/[^/]+\/files\/(.+)$/i,
-    /^\/projects\/[^/]+\/files\/(.+)$/i,
-    /^\/projects\/[^/]+\/conversations\/[^/]+\/files\/(.+)$/i,
+    /^\/api\/projects\/([^/]+)\/raw\/(.+)$/i,
+    /^\/api\/projects\/([^/]+)\/files\/(.+)$/i,
+    /^\/projects\/([^/]+)\/files\/(.+)$/i,
+    /^\/projects\/([^/]+)\/conversations\/[^/]+\/files\/(.+)$/i,
   ];
   for (const pattern of patterns) {
     const match = pattern.exec(withoutQuery);
-    if (match?.[1]) return match[1];
+    if (!match?.[1] || !match[2]) continue;
+    return {
+      projectId: decodeRouteSegment(match[1]),
+      filePath: match[2],
+    };
   }
   return null;
+}
+
+function decodeRouteSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
 }
 
 function matchKnownProjectFilePath(

@@ -72,6 +72,14 @@ describe('asInProjectFilePath', () => {
       expect(asInProjectFilePath('/api/projects/project-1/raw/mutuals-v2.html')).toBe('mutuals-v2.html');
     });
 
+    it('extracts project raw file URLs only when the route project matches the current project', () => {
+      expect(asInProjectFilePath('/api/projects/project-1/raw/mutuals-v2.html', undefined, 'project-1')).toBe(
+        'mutuals-v2.html',
+      );
+      expect(asInProjectFilePath('/api/projects/other-project/raw/index.html', new Set(['index.html']), 'project-1'))
+        .toBeNull();
+    });
+
     it('extracts same-origin absolute project raw file URLs', () => {
       expect(asInProjectFilePath(`${window.location.origin}/api/projects/project-1/raw/mutuals-v2.html`)).toBe(
         'mutuals-v2.html',
@@ -107,6 +115,14 @@ describe('asInProjectFilePath', () => {
       expect(asInProjectFilePath('/projects/project-1/conversations/conv-1/files/mutuals-v2.html')).toBe(
         'mutuals-v2.html',
       );
+    });
+
+    it('extracts workspace file routes only when the route project matches the current project', () => {
+      expect(asInProjectFilePath('/projects/project-1/files/mutuals-v2.html', undefined, 'project-1')).toBe(
+        'mutuals-v2.html',
+      );
+      expect(asInProjectFilePath('/projects/other-project/files/index.html', new Set(['index.html']), 'project-1'))
+        .toBeNull();
     });
 
     it('returns null for malformed percent-encoding rather than throwing', () => {
