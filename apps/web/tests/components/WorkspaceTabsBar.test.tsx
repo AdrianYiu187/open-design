@@ -462,7 +462,7 @@ describe('WorkspaceTabsBar navigation semantics', () => {
     expect(tooltip.style.left).toBe('32px');
   });
 
-  it('reorders tabs live from left to right while dragging without changing the active route', async () => {
+  it('keeps the Home tab pinned leftmost when a tab is dropped onto its left edge', async () => {
     const vibrate = vi.fn();
     Object.defineProperty(window.navigator, 'vibrate', {
       configurable: true,
@@ -514,30 +514,34 @@ describe('WorkspaceTabsBar navigation semantics', () => {
       ]);
     });
 
-    const [homeTab, alphaTab] = screen.getAllByRole('tab');
-    mockTabRect(alphaTab! as HTMLElement, 100);
+    // Dragging a project tab onto Home's left edge must not place anything
+    // before Home. Home is the permanent, pinned-leftmost tab; the drop should
+    // resolve to "after Home" so Home stays first.
+    const [homeTab, , betaTab] = screen.getAllByRole('tab');
+    mockTabRect(homeTab! as HTMLElement, 0);
     const dataTransfer = createDataTransfer();
-    fireEvent.dragStart(homeTab!, { dataTransfer });
-    dispatchDragEvent(alphaTab! as HTMLElement, 'dragover', dataTransfer, 160);
+    fireEvent.dragStart(betaTab!, { dataTransfer });
+    // clientX 10 lands in the left half of Home's rect (left=0, width=100).
+    dispatchDragEvent(homeTab! as HTMLElement, 'dragover', dataTransfer, 10);
 
     await waitFor(() => {
       const labels = screen.getAllByRole('tab').map((tab) => tab.textContent ?? '');
       expect(labels).toEqual([
-        expect.stringContaining('Project Alpha'),
         expect.stringContaining('Home'),
         expect.stringContaining('Project Beta'),
+        expect.stringContaining('Project Alpha'),
       ]);
     });
 
-    dispatchDragEvent(alphaTab! as HTMLElement, 'drop', dataTransfer, 160);
-    fireEvent.dragEnd(homeTab!, { dataTransfer });
+    dispatchDragEvent(homeTab! as HTMLElement, 'drop', dataTransfer, 10);
+    fireEvent.dragEnd(betaTab!, { dataTransfer });
 
     await waitFor(() => {
       const labels = screen.getAllByRole('tab').map((tab) => tab.textContent ?? '');
       expect(labels).toEqual([
-        expect.stringContaining('Project Alpha'),
         expect.stringContaining('Home'),
         expect.stringContaining('Project Beta'),
+        expect.stringContaining('Project Alpha'),
       ]);
     });
 
@@ -550,9 +554,9 @@ describe('WorkspaceTabsBar navigation semantics', () => {
     };
     expect(stored.activeTabId).toBe('project:project-alpha');
     expect(stored.tabs?.map((tab) => tab.id)).toEqual([
-      'project:project-alpha',
       'entry:home:seed',
       'project:project-beta',
+      'project:project-alpha',
     ]);
   });
 

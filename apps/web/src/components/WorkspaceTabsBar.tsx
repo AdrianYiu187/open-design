@@ -742,7 +742,11 @@ export function WorkspaceTabsBar({ route, projects }: Props) {
     setState((current) => {
       const normalized = normalizeTabsState(current);
       const tabs = reorderTabsById(normalized.tabs, sourceId, targetId, edge);
-      return tabs === normalized.tabs ? normalized : { ...normalized, tabs };
+      if (tabs === normalized.tabs) return normalized;
+      // Re-normalize so the Home tab is re-pinned to the leftmost slot even when
+      // a drop would otherwise have placed a tab before it. Home is the one
+      // permanent, non-closable tab and must always sit first.
+      return normalizeTabsState({ ...normalized, tabs });
     });
   }
 
@@ -750,13 +754,24 @@ export function WorkspaceTabsBar({ route, projects }: Props) {
     const strip = stripRef.current;
     if (!strip) return null;
 
+    // The Home tab is pinned leftmost: never expose a drop target that would
+    // place another tab before it. Coerce any 'before Home' edge to 'after Home'
+    // so the live drag indicator and the persisted order both keep Home first.
+    const homeTabId = state.tabs.find(
+      (tab) => tab.kind === 'entry' && tab.view === 'home',
+    )?.id;
+    const resolveTarget = (target: TabDragTarget): TabDragTarget =>
+      target.tabId === homeTabId && target.edge === 'before'
+        ? { tabId: target.tabId, edge: 'after' }
+        : target;
+
     const eventTarget = event.target;
     if (eventTarget instanceof HTMLElement) {
       const tabElement = eventTarget.closest<HTMLElement>('[data-workspace-tab-id]');
       if (tabElement && strip.contains(tabElement)) {
         const tabId = tabElement.dataset.workspaceTabId;
         if (tabId && tabId !== sourceId) {
-          return { tabId, edge: tabDropEdgeFromElement(event, tabElement) };
+          return resolveTarget({ tabId, edge: tabDropEdgeFromElement(event, tabElement) });
         }
       }
     }
@@ -766,8 +781,8 @@ export function WorkspaceTabsBar({ route, projects }: Props) {
       const tabId = tabElement.dataset.workspaceTabId;
       if (!tabId || tabId === sourceId) continue;
       const rect = tabElement.getBoundingClientRect();
-      if (event.clientX <= rect.left + rect.width / 2) return { tabId, edge: 'before' };
-      if (event.clientX <= rect.right) return { tabId, edge: 'after' };
+      if (event.clientX <= rect.left + rect.width / 2) return resolveTarget({ tabId, edge: 'before' });
+      if (event.clientX <= rect.right) return resolveTarget({ tabId, edge: 'after' });
       lastTarget = { tabId, edge: 'after' };
     }
     return lastTarget;
