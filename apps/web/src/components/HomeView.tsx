@@ -60,7 +60,6 @@ import type {
 import { inlineMentionToken, mentionTokenPresent } from '../utils/inlineMentions';
 import { missingRequiredInputs, pluginInputsAreValid } from '../utils/pluginRequiredInputs';
 import { HomeHero, type ExamplePromptInfo, type HomeHeroHandle } from './HomeHero';
-import { Icon } from './Icon';
 import { findChip, HOME_HERO_CHIPS, type HomeHeroChip } from './home-hero/chips';
 import {
   buildHomeMediaComposer,
@@ -84,7 +83,6 @@ import type { FacetSelection } from './plugins-home/facets';
 import type { PluginUseAction } from './plugins-home/useActions';
 import { RecentProjectsStrip } from './RecentProjectsStrip';
 import { AnimatePresence } from 'motion/react';
-import { Toast } from './Toast';
 
 interface ActivePlugin {
   record: InstalledPluginRecord;
