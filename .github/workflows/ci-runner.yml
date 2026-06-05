@@ -7,9 +7,26 @@ permissions:
   contents: read
 
 jobs:
-  placeholder:
-    name: Runner CI placeholder
-    runs-on: ubuntu-latest
+  probe:
+    name: Runner CI probe
+    runs-on: [self-hosted, Linux, ARM64, nexu-spark, open-design-ci]
+    timeout-minutes: 5
+    env:
+      OD_CI_ALLOW_DOCKER: "1"
+      OD_CI_LANE: runner
+      OD_CI_MODE: probe
     steps:
-      - name: Placeholder
-        run: echo "ci-runner placeholder"
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Run CI probe
+        run: .github/workflows/scripts/ci.sh probe
+
+      - name: Upload CI probe manifest
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-runner-probe-${{ github.run_id }}
+          path: .od/ci/probe-manifest.json
+          if-no-files-found: warn
+          retention-days: 7
