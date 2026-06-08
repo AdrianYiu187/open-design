@@ -1464,6 +1464,38 @@ describe('FileWorkspace generation failure recovery', () => {
     expect(screen.getByTestId('generation-preview-stage')).toBeTruthy();
   });
 
+  // When the agent pauses to ask a question (awaiting-input), the Questions tab
+  // owns that state — the Generating tab must NOT appear and steal focus from
+  // the form the user needs to answer on the discovery path.
+  it('does not surface a Generating tab while awaiting question-form input', () => {
+    const awaitingInput: ChatMessage = {
+      id: 'msg-awaiting',
+      role: 'assistant',
+      content: '<question-form id="discovery" title="Brief">{"questions":[]}</question-form>',
+      runStatus: 'succeeded',
+      startedAt: 1700000000,
+      events: [
+        { kind: 'text', text: '<question-form id="discovery">{"questions":[]}</question-form>' },
+      ],
+    };
+    render(
+      <FileWorkspace
+        projectId="project-1"
+        projectKind="prototype"
+        files={[]}
+        liveArtifacts={[]}
+        onRefreshFiles={vi.fn()}
+        isDeck={false}
+        tabsState={{ tabs: [], active: DESIGN_FILES_TAB }}
+        onTabsStateChange={vi.fn()}
+        messages={[awaitingInput]}
+      />,
+    );
+
+    expect(screen.queryByTestId('generating-tab')).toBeNull();
+    expect(screen.queryByTestId('generation-preview-stage')).toBeNull();
+  });
+
   // The override above is scoped to the *empty* design-files tab. A populated
   // project must keep its file browser while a run is in flight instead of
   // having the generation card hijack the tab — otherwise the fresh-project fix

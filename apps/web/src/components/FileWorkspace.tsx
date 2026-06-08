@@ -592,7 +592,16 @@ export function FileWorkspace({
   // empty (first-run) project: a populated project keeps its file browser while
   // generating, exactly as before — there are already file tabs to watch, and
   // `buildGenerationPreviewState` defers to an open artifact/file anyway.
-  const showGeneratingTab = Boolean(generationPreview) && designFilesTabIsEmpty;
+  //
+  // EXCLUDE the 'awaiting-input' phase: when the agent emits a question form it
+  // pauses awaiting answers, and that flow already focuses the Questions tab
+  // (via focusQuestionsRequest). Surfacing a Generating tab here too would
+  // auto-focus away from the form the user needs to answer on the main
+  // discovery path. Let the Questions tab own the awaiting-input state.
+  const showGeneratingTab =
+    Boolean(generationPreview)
+    && generationPreview?.phase !== 'awaiting-input'
+    && designFilesTabIsEmpty;
   const generatingTabTitle =
     generationPreview?.phase === 'failed'
       ? t('generationPreview.failedTitle')
@@ -875,10 +884,13 @@ export function FileWorkspace({
   }, [showGeneratingTab]);
 
   // When the run resolves (the produced file opens, or the status clears) the
-  // transient tab disappears; if it was active, fall back to the default tab.
+  // transient tab disappears; if it was active, fall back. Prefer the Questions
+  // tab when a form is awaiting answers — this is the generating→awaiting-input
+  // handoff, and the user should land on the form, not the empty Design Files
+  // list. Otherwise fall back to the default root tab.
   useEffect(() => {
     if (activeTab === GENERATING_TAB && !showGeneratingTab) {
-      setActiveTab(defaultRootTab);
+      setActiveTab(showQuestionsTab ? QUESTIONS_TAB : defaultRootTab);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, showGeneratingTab]);
