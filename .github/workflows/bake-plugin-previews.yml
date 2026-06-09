@@ -9,11 +9,10 @@ name: bake-plugin-previews
 
 on:
   push:
-    branches: [main, feat/plugin-preview-video] # TEMP: debug branch entry — remove before merge
+    branches: [main]
     paths:
       - 'plugins/_official/**'
       - 'scripts/bake-plugin-previews.mjs'
-      - '.github/workflows/bake-plugin-previews.yml' # so workflow edits re-trigger on the debug branch
   schedule:
     - cron: '0 18 * * *' # nightly self-healing full sweep
   workflow_dispatch: {}
@@ -73,14 +72,10 @@ jobs:
           mkdir -p .tmp/plugin-previews
           # Seed with the committed manifest so the hash skip can reuse entries.
           cp data/plugin-previews/manifest.json .tmp/plugin-previews/manifest.json
-          # TEMP: on the debug branch only bake a few plugins for fast iteration.
-          LIMIT=""
-          if [ "${{ github.ref }}" != "refs/heads/main" ]; then LIMIT="--limit 3"; fi
-          node scripts/bake-plugin-previews.mjs --out .tmp/plugin-previews $LIMIT
-          echo "--- baked dir ---"; ls -la .tmp/plugin-previews
+          node scripts/bake-plugin-previews.mjs --out .tmp/plugin-previews
 
       - name: Upload clips to R2
-        if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/plugin-preview-video' }} # TEMP: also publish on the debug branch to verify R2 — revert to main-only before merge
+        if: ${{ github.ref == 'refs/heads/main' }} # only publish from main
         # Publishes to the repository-assets R2 bucket; the deployed daemon must
         # set OD_PLUGIN_PREVIEWS_BASE_URL to
         # https://repo-assets.open-design.ai/plugin-previews so its bakedPreview
