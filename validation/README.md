@@ -1,43 +1,56 @@
-# validation — 主链路验证用例库
+# validation — main-chain validation suite
 
-`main-chain-suite.yaml` 是 open-design 的**「每次 release 必须工作」回归契约 / 验收标准**。
-它和产品代码住在一起,由产品/QA 团队拥有,改功能时在同一个 PR 里顺手更新对应用例。
+`main-chain-suite.yaml` is open-design's **"must work every release" regression contract /
+acceptance criteria**. It lives alongside the product code, is owned by the product/QA team,
+and is updated in the same PR whenever a feature changes.
 
-## 谁用它
+## Who uses it
 
-- **nexu-xray agent 自主验证**:验证 open-design 时从本仓读取这份契约,逐条(`per_model` 的 × AMR 全模型)自主跑,产出结果。
-- **自主验证偏差率**:agent 自主验证结果 ↔ 测试同学人工验收结论,按 case `id` 对齐,算偏差(目标逐版→0)。看板:研发页 `/daily/?view=yang` 的「Agent 自主验证 vs 人工验收」卡片。
+- **nexu-xray autonomous validation**: when validating open-design, the agent reads this
+  contract from the repo and runs each case autonomously (`per_model` cases run once per AMR model).
+- **Autonomous-validation deviation**: the agent's results are aligned with the test team's
+  human acceptance by case `id` to compute a deviation rate (target → 0 over releases).
+  Dashboard: the "Agent autonomous validation vs human acceptance" card on the R&D page
+  (`/daily/?view=yang`).
 
-> 设计理念:**每个产品自带自己的验证契约,工具(nexu-xray)是通用 runner**。所以契约住在产品仓,不在工具仓。
+> Design principle: **each product ships its own validation contract; the tool (nexu-xray) is a
+> generic runner.** So the contract lives in the product repo, not the tool repo.
 
-## 怎么长大(沉淀)
+## How it grows (sedimentation)
 
-- 每份**人工验收文档**的 P0/P1(/P2)→ 找到匹配 case 补 `sources`,或新增 case。
-- 改功能 → 同 PR 更新受影响的 case。
-- 只增不忘:历史人工找到的问题都变成可回归的用例。
+- Every **human acceptance doc**: its P0/P1(/P2) issues → match an existing case (append to
+  `sources`) or add a new case.
+- A feature change → update the affected cases in the same PR.
+- Append-only: every issue humans ever found becomes a reproducible case.
 
-## case 结构
+## Case shape
 
 ```yaml
-- id: mc-exec-completes-no-error   # 稳定 kebab id(两边对齐的主键)
+- id: mc-exec-completes-no-error   # stable kebab id (the join key across both sides)
   chain: generate                  # generate|preview|comment|edit|chat|mark|session|home|ui|export|settings|amr|...
-  scope: per_model                 # per_model = AMR 全模型各跑一遍;once = 跑一次
-  severity: P0                     # P0 主链路阻断 / P1 高 / P2 中 / P3 低
-  exec_dependent: true             # (可选) 依赖真实模型执行 → 应在真后端跑
-  error_path: true                 # (可选) 测错误/边界路径(瞬时报错恢复、超时…)
-  title: 每个 AMR 模型执行生成都不报错
+  scope: per_model                 # per_model = run once per AMR model; once = run once
+  severity: P0                     # P0 main-chain blocker / P1 high / P2 medium / P3 low
+  exec_dependent: true             # (optional) needs a real model run → exercise on a real backend
+  error_path: true                 # (optional) tests an error/edge path (transient-error recovery, timeout, ...)
+  title: 每个 AMR 模型执行生成都不报错        # case content is in Chinese (matches the Chinese UI + acceptance docs)
   steps: [新建项目并输入 prompt, 选定该 AMR 模型, 运行生成]
   expected: 执行完成、无 connection reset / socket / opencode event stream 等后端报错
-  sources: [0.10.0-nightly P0-2, P0-5/6 gpt-5.5 socket]   # 沉淀来源:验收条目 或 测试文件
+  sources: [0.10.0-nightly P0-2, P0-5/6 gpt-5.5 socket]   # provenance: acceptance item or test file
 ```
 
-## AMR 全模型策略
+> Note: docs/structure are in English; **case content (`title`/`steps`/`expected`) stays in
+> Chinese** — it mirrors the Chinese UI and is transcribed from the team's Chinese acceptance docs.
 
-`amr_regression`:AMR(云端模型 runtime)**全模型是核心,每次 release 必须回归一遍**。
-0.10.0 验收证明多数 P0 是模型后端特定的执行错误,**单后端跑结构性漏掉**。
-模型清单**运行时从 `apps/daemon/src/runtimes/registry.ts` 的 BASE_AGENT_DEFS 枚举 + 每 agent `listModels` 动态发现**,不硬编码。
+## AMR all-models policy
+
+`amr_regression`: AMR (the cloud model runtime) — **all models are CORE; every release must
+regress the main chain under every model in the live AMR catalog**. The 0.10.0 acceptance proved
+most P0s are model-backend-specific execution errors, which a single-backend run structurally
+misses. The model list is **enumerated at run time** from `apps/daemon/src/runtimes/registry.ts`
+`BASE_AGENT_DEFS` plus each agent's `listModels` discovery — never hardcoded.
 
 ---
 
-格式选 YAML(人读 + agent 读 + git diff + 可注释,比 JSON 省 token)。从 nexu-xray 工具仓的
-`corpus/main-chain-suite.json` 迁移而来(2026-06-08),后续此处为单一真相。
+Format is YAML (readable by humans and agents, diff-friendly, comment-capable, lighter than JSON).
+Migrated from the nexu-xray tool repo's `corpus/main-chain-suite.json` (2026-06-08); this is now
+the single source of truth.

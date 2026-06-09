@@ -1,11 +1,16 @@
-# 主链路验证用例库 (main-chain validation suite)
+# main-chain validation suite
 #
-# open-design 的「每次 release 必须工作」回归契约 / 验收标准。
-# - 由 nexu-xray agent 自主验证读取(每个产品自带自己的验证契约,工具是通用 runner)。
-# - GROWS:每份人工验收 PDF 的 P0/P1 沉淀进来;改功能时同 PR 顺手更新对应 case。
-# - scope: per_model = 该 case 在 AMR 全模型下各跑一遍(见 amr_regression)。
-# - severity: P0 主链路阻断 / P1 高优 / P2 中 / P3 低。
-# - 两边(agent 结果 ↔ 人工验收)按 case `id` 对齐,算自主验证偏差率。
+# open-design's "must work every release" regression contract / acceptance criteria.
+# - Read by the nexu-xray autonomous-validation agent (each product ships its own contract;
+#   the tool is a generic runner).
+# - GROWS: every human acceptance doc's P0/P1 is sedimented in; update the relevant case in the
+#   same PR when a feature changes.
+# - scope: per_model = run this case once per model in the live AMR catalog (see amr_regression).
+# - severity: P0 main-chain blocker / P1 high / P2 medium / P3 low.
+# - Both sides (agent results <-> human acceptance) are aligned by case `id` to compute the
+#   autonomous-validation deviation rate.
+# - Note: case content (title/steps/expected) is in Chinese on purpose — it mirrors the Chinese
+#   UI and is transcribed from the team's Chinese acceptance docs.
 #
 version: 2
 product: nexu-io/open-design
