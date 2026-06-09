@@ -53,7 +53,10 @@ function loadManifest(dir: string): Record<string, BakeEntry> {
     const previews = parsed.previews ?? {};
     cache = { dir, mtimeMs, previews };
     return previews;
-  } catch {
+  } catch (err) {
+    // A malformed/unreadable manifest would otherwise silently disable every
+    // baked preview with no trace; surface it so it's diagnosable.
+    console.warn(`[plugin-preview-bakes] failed to load ${manifestPath}: ${String(err)}`);
     return {};
   }
 }
