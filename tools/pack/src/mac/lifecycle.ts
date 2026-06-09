@@ -321,10 +321,12 @@ async function collectLaunchXattrSummary(appPath: string): Promise<string[]> {
     const lines = nonEmptyLines(result.stdout);
     const quarantine = lines.filter((line) => line.includes("com.apple.quarantine"));
     const provenance = lines.filter((line) => line.includes("com.apple.provenance"));
-    const matched = [...quarantine, ...provenance];
+    const macl = lines.filter((line) => line.includes("com.apple.macl"));
+    const matched = [...quarantine, ...provenance, ...macl];
     return [
       `quarantine entries: ${quarantine.length}`,
       `provenance entries: ${provenance.length}`,
+      `macl entries: ${macl.length}`,
       ...(matched.length === 0 ? [] : tailLines(matched, 8).map((line) => truncateLine(line))),
     ];
   } catch (error) {

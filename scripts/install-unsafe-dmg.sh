@@ -150,6 +150,7 @@ echo "Removing unsafe-install xattrs:"
 echo "  path: $target_app"
 xattr -dr com.apple.quarantine "$target_app" 2>/dev/null || true
 xattr -dr com.apple.provenance "$target_app" 2>/dev/null || true
+xattr -dr com.apple.macl "$target_app" 2>/dev/null || true
 
 echo "Installed unsafe DMG app:"
 echo "  app: $target_app"

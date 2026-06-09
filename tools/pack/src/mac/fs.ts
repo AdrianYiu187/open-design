@@ -61,7 +61,7 @@ export async function sumChildDirectorySizes(path: string, includeChild: (name: 
 }
 
 
-const MAC_XATTRS_TO_SCRUB = ["com.apple.quarantine", "com.apple.provenance"] as const;
+export const MAC_XATTRS_TO_SCRUB = ["com.apple.quarantine", "com.apple.provenance", "com.apple.macl"] as const;
 
 export async function scrubMacExtendedAttributes(path: string): Promise<void> {
   for (const attribute of MAC_XATTRS_TO_SCRUB) {

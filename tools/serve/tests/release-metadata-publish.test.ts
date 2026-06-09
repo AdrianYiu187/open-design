@@ -129,9 +129,13 @@ describe("shared release metadata publisher", () => {
             mac_arm64?: { artifacts?: { payload?: { url?: string } } };
             win_x64?: { artifacts?: { payload?: { url?: string } } };
           };
+          allReadyTargetsSigned?: boolean;
+          signed?: boolean;
         };
         expect(metadata.channel).toBe(channel);
         expect(metadata.releaseState).toBe("complete");
+        expect(metadata.signed).toBe(true);
+        expect(metadata.allReadyTargetsSigned).toBe(false);
         expect(metadata.releaseTargets?.mac_arm64?.artifacts?.payload?.url).toBe("https://example.test/mac-payload");
         expect(metadata.releaseTargets?.win_x64?.artifacts?.payload?.url).toBe("https://example.test/win-payload");
         expect(server.getObject(`${channel}/latest/metadata.json`)).not.toBeNull();

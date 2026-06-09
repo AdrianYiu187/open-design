@@ -313,9 +313,9 @@ if (expectedTargets.length > 0 && readyTargets.length === expectedTargets.length
 else if (readyTargets.length > 0) releaseState = "partial";
 
 let assetVersionSuffix = requestedAssetVersionSuffix;
+const readyManifests = readyTargets.map((target) => releaseTargets[target]).filter((manifest) => manifest != null);
+const allReadyTargetsSigned = readyManifests.length > 0 && readyManifests.every((manifest) => manifest.signed === true);
 if (assetVersionSuffix === "auto") {
-  const readyManifests = readyTargets.map((target) => releaseTargets[target]).filter((manifest) => manifest != null);
-  const allReadyTargetsSigned = readyManifests.length > 0 && readyManifests.every((manifest) => manifest.signed === true);
   assetVersionSuffix = allReadyTargetsSigned ? ".signed" : ".unsigned";
 }
 const versionPrefix = optional("RELEASE_VERSION_PREFIX", `${releaseChannel}/versions/${releaseVersion}${assetVersionSuffix}`);
@@ -350,6 +350,7 @@ const metadata = {
   releaseState,
   releaseTargets,
   signed: process.env.RELEASE_SIGNED === "true",
+  allReadyTargetsSigned,
   stateSource: required("STATE_SOURCE"),
   version: 1,
 };

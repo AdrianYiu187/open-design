@@ -103,7 +103,7 @@ const WINDOWS_DEFERRED_INSTALLER_TIMEOUT_MS = 10 * 60 * 1000;
 const ARTIFACT_DOWNLOAD_MAX_ATTEMPTS = 3;
 const DESKTOP_UPDATE_CHANNEL_VALUES = new Set<string>(Object.values(DESKTOP_UPDATE_CHANNELS));
 const execFileAsync = promisify(execFile);
-const MAC_PAYLOAD_XATTRS_TO_SCRUB = ["com.apple.quarantine", "com.apple.provenance"] as const;
+const MAC_PAYLOAD_XATTRS_TO_SCRUB = ["com.apple.quarantine", "com.apple.provenance", "com.apple.macl"] as const;
 
 export type DesktopUpdaterConfigInput = {
   appVersion?: string | null;
@@ -2286,16 +2286,26 @@ export function createDesktopUpdater(
   let state: DesktopUpdateState = DESKTOP_UPDATE_STATES.IDLE;
   let error: DesktopUpdateErrorSnapshot | undefined;
   let operation: Promise<unknown> = Promise.resolve();
+  const sessionId = `${now().toISOString()}-${processPid}`;
 
   function logUpdateEvent(event: string, fields: Record<string, unknown> = {}): void {
     logger.info?.("[open-design updater] lifecycle", {
       currentVersion: config.currentVersion,
       event,
       mode: config.mode,
+      namespace: config.namespace,
       platform: config.platform,
+      sessionId,
+      source: config.source,
       ...fields,
     });
   }
+
+  logUpdateEvent("session-start", {
+    autoCheck: config.autoCheck,
+    enabled: config.enabled,
+    metadataUrl: config.metadataUrl,
+  });
 
   function supported(): boolean {
     return config.enabled && config.mode === DESKTOP_UPDATE_MODES.PACKAGE_LAUNCHER && isSupportedPackageLauncherPlatform(config.platform);
