@@ -34,14 +34,20 @@ const ctaHref = (a: { href: string; external?: boolean }) =>
 
 const faqEntries = (rich?.faq ?? page.faq).map(({ name, text }) => ({ name, text }));
 
+// JSON-LD URLs must match the locale-specific canonical the Layout emits, so
+// build them from the localized path rather than the hard-coded English route.
+const homeUrl = new URL(href('/'), SITE).toString();
+const agentsHubUrl = new URL(href('/agents/'), SITE).toString();
+const pageUrl = new URL(Astro.url.pathname, SITE).toString();
+
 const jsonLd = [
   {
     '@context': 'https://schema.org',
     '@type': 'BreadcrumbList',
     itemListElement: [
-      { '@type': 'ListItem', position: 1, name: 'Open Design', item: SITE },
-      { '@type': 'ListItem', position: 2, name: 'Agents', item: `${SITE}agents/` },
-      { '@type': 'ListItem', position: 3, name: page.breadcrumb, item: `${SITE}agents/${ROUTE}/` },
+      { '@type': 'ListItem', position: 1, name: 'Open Design', item: homeUrl },
+      { '@type': 'ListItem', position: 2, name: 'Agents', item: agentsHubUrl },
+      { '@type': 'ListItem', position: 3, name: page.breadcrumb, item: pageUrl },
     ],
   },
   {
@@ -49,7 +55,7 @@ const jsonLd = [
     '@type': 'Article',
     headline: page.title,
     description: page.description,
-    url: `${SITE}agents/${ROUTE}/`,
+    url: pageUrl,
     isPartOf: { '@id': `${SITE}#website` },
   },
   {

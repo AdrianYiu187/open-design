@@ -163,7 +163,9 @@ const jsonLd = [
       '@type': 'ListItem',
       position: idx + 1,
       name: a.name,
-      url: `${SITE}agents/#${a.slug}`,
+      // Agents with a dedicated leaf page advertise it as the canonical
+      // destination; the rest keep the in-hub anchor until they get one.
+      url: DETAIL_ROUTES[a.slug] ? `${SITE}agents/${DETAIL_ROUTES[a.slug]}/` : `${SITE}agents/#${a.slug}`,
     })),
   },
 ];
