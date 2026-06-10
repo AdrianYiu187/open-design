@@ -17,7 +17,6 @@
 
 import { useEffect, useRef, useState } from 'react';
 import type { MediaPreviewSpec } from '../preview';
-import { useInView } from '../useInView';
 
 interface Props {
   preview: MediaPreviewSpec;
@@ -52,15 +51,37 @@ export function MediaSurface({ preview, pluginTitle, inView, visible = inView }:
   const idlePlays = isVideo && holdMs != null;
   // Prefetch zone: warm the full clip into the HTTP cache a row or two ahead so
   // playback starts instantly on scroll-in instead of buffering from the
-  // +faststart header at the moment the tile appears. Only baked clips can
-  // upgrade `preload`, so the observer's ref is attached only when `idlePlays`;
-  // for every other media card useInView never sees a node and creates no
-  // observer — no extra threshold rerenders on a scroll-heavy gallery.
-  const { ref: approachRef, inView: approachingRaw } = useInView<HTMLDivElement>({
-    rootMargin: '1000px',
-    once: false,
-  });
-  const approaching = idlePlays && approachingRaw;
+  // +faststart header at the moment the tile appears. Keep the root ref stable
+  // across card reuse, and gate observer creation on `idlePlays` inside the
+  // effect: non-baked media cards pay no observer/rerender cost, while a reused
+  // card that flips from non-baked -> baked still subscribes correctly.
+  const approachRef = useRef<HTMLDivElement>(null);
+  const [approaching, setApproaching] = useState(false);
+  useEffect(() => {
+    if (!idlePlays) {
+      setApproaching(false);
+      return;
+    }
+
+    const node = approachRef.current;
+    if (!node) return;
+
+    if (typeof IntersectionObserver === 'undefined') {
+      setApproaching(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          setApproaching(entry.isIntersecting);
+        }
+      },
+      { rootMargin: '1000px' },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [idlePlays]);
   // Mount across the wider `inView` margin so hover/scroll-in never remounts +
   // reloads the source, but only decode/buffer when truly `visible` (or
   // hovering) — otherwise every tile in the margin runs a simultaneous decode +
@@ -133,7 +154,7 @@ export function MediaSurface({ preview, pluginTitle, inView, visible = inView }:
 
   return (
     <div
-      ref={idlePlays ? approachRef : undefined}
+      ref={approachRef}
       className="plugins-home__media"
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}

@@ -126,7 +126,7 @@ describe('MediaSurface broken-poster fallback (#2955)', () => {
 describe('MediaSurface tiered clip preload (scroll-in prefetch)', () => {
   it('keeps preload at metadata while mounted but before the prefetch zone is reached', () => {
     // A non-firing IntersectionObserver models the tile being mounted in the
-    // wide margin but not yet in the prefetch zone: useInView never reports
+    // wide margin but not yet in the prefetch zone: the observer never reports
     // in-view, so the internal `approaching` signal stays false.
     const orig = globalThis.IntersectionObserver;
     globalThis.IntersectionObserver = class {
@@ -147,8 +147,8 @@ describe('MediaSurface tiered clip preload (scroll-in prefetch)', () => {
   });
 
   it('warms the full clip (preload=auto) once the prefetch zone is reached', () => {
-    // jsdom ships no IntersectionObserver, so useInView reports in-view
-    // immediately — i.e. the prefetch zone is reached. The whole point of the
+    // jsdom ships no IntersectionObserver, so MediaSurface treats the prefetch
+    // zone as reached immediately. The whole point of the
     // tier: the bytes are warmed into the HTTP cache a row or two ahead, so
     // playback starts instantly on scroll-in instead of buffering from the
     // +faststart header at the moment the tile appears.
@@ -157,5 +157,33 @@ describe('MediaSurface tiered clip preload (scroll-in prefetch)', () => {
     );
     const video = container.querySelector('video');
     expect(video!.getAttribute('preload')).toBe('auto');
+  });
+
+  it('starts observing when a reused media card becomes a baked clip', () => {
+    // React can reuse the same MediaSurface instance while filters/feeds rotate
+    // cards. A plain video card should not pay for the prefetch observer, but if
+    // that same instance later receives a baked clip, the stable ref + idlePlays
+    // effect dependency must subscribe then; otherwise it would stay stuck at
+    // preload=metadata forever.
+    const orig = globalThis.IntersectionObserver;
+    const observed: Element[] = [];
+    globalThis.IntersectionObserver = class {
+      observe(node: Element) {
+        observed.push(node);
+      }
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof IntersectionObserver;
+    try {
+      const { rerender } = render(
+        <MediaSurface preview={VIDEO_POSTER} pluginTitle="Video" inView={true} visible={false} />,
+      );
+      expect(observed).toHaveLength(0);
+
+      rerender(<MediaSurface preview={BAKED_CLIP} pluginTitle="Clip" inView={true} visible={false} />);
+      expect(observed).toHaveLength(1);
+    } finally {
+      globalThis.IntersectionObserver = orig;
+    }
   });
 });
