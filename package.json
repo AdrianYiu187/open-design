@@ -59,6 +59,7 @@
       "electron",
       "electron-winstaller",
       "esbuild",
+      "node-pty",
       "protobufjs",
       "sharp"
     ]
